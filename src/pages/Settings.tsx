@@ -46,11 +46,22 @@ export const Settings: React.FC<SettingsProps> = ({
   const [keysSaved, setKeysSaved] = useState(false);
 
   // Status & Diagnostics
-  const [redirectUri, setRedirectUri] = useState('');
+  const getInitialRedirectUri = () => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return `${window.location.origin}/api/auth/youtube/callback`;
+    }
+    return 'https://dhunboy-official.vercel.app/api/auth/youtube/callback';
+  };
+
+  const [redirectUri, setRedirectUri] = useState(getInitialRedirectUri);
   const [copiedRedirect, setCopiedRedirect] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [hasGoogleCreds, setHasGoogleCreds] = useState(false);
   const [diagnostics, setDiagnostics] = useState<any>(null);
+
+  const effectiveDisplayUri = (redirectUri && redirectUri.trim() && redirectUri !== '/api/auth/youtube/callback')
+    ? redirectUri
+    : (typeof window !== 'undefined' ? `${window.location.origin}/api/auth/youtube/callback` : 'https://dhunboy-official.vercel.app/api/auth/youtube/callback');
 
   // Testing Connections
   const [testingConnections, setTestingConnections] = useState(false);
@@ -160,10 +171,30 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
-  const handleCopyRedirectUri = () => {
-    navigator.clipboard.writeText(redirectUri);
-    setCopiedRedirect(true);
-    setTimeout(() => setCopiedRedirect(false), 2000);
+  const handleCopyRedirectUri = async () => {
+    const textToCopy = effectiveDisplayUri;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        // Fallback for Android Chrome / mobile browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = textToCopy;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
+      setCopiedRedirect(true);
+      setTimeout(() => setCopiedRedirect(false), 3000);
+    } catch (err) {
+      console.warn('Clipboard write failed, prompt fallback:', err);
+      window.prompt('Copy this Redirect URI for Google Cloud Console:', textToCopy);
+    }
   };
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
@@ -317,7 +348,7 @@ export const Settings: React.FC<SettingsProps> = ({
             </span>
           </div>
           <p className="text-xs font-mono font-bold text-slate-200 truncate">
-            {redirectUri}
+            {effectiveDisplayUri}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Must match Google Cloud Console Authorized URI.
@@ -427,28 +458,37 @@ export const Settings: React.FC<SettingsProps> = ({
             <strong className="text-slate-200"> APIs & Services &gt; Credentials &gt; OAuth 2.0 Client IDs &gt; Authorized redirect URIs</strong>:
           </p>
 
-          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
-            <span className="font-mono text-xs text-emerald-400 truncate select-all">
-              {redirectUri}
-            </span>
+          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <input
+              type="text"
+              readOnly
+              value={effectiveDisplayUri}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              onFocus={(e) => (e.target as HTMLInputElement).select()}
+              aria-label="Google Cloud Authorized Redirect URI"
+              className="font-mono text-xs text-emerald-400 bg-slate-900 sm:bg-transparent px-3 py-2 sm:px-0 sm:py-0 rounded-lg sm:rounded-none border border-slate-800 sm:border-0 outline-none w-full select-all font-semibold cursor-pointer"
+            />
             <button
               type="button"
               onClick={handleCopyRedirectUri}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold shrink-0 transition-colors"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold shrink-0 transition-all shadow-md shadow-emerald-950/50"
             >
               {copiedRedirect ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <Check className="w-4 h-4 text-white animate-pulse" />
                   <span>Copied!</span>
                 </>
               ) : (
                 <>
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-4 h-4" />
                   <span>Copy URI</span>
                 </>
               )}
             </button>
           </div>
+          <p className="text-[11px] text-slate-500">
+            💡 <strong>Direct URL:</strong> <code className="text-emerald-400 font-mono select-all break-all">{effectiveDisplayUri}</code>
+          </p>
         </div>
       </div>
 
