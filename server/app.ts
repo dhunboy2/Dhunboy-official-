@@ -27,6 +27,22 @@ console.log(` - OAuth Redirect URI: ${envConfig.redirectUri}`);
 
 export const app = express();
 
+// Vercel serverless / body-parser compatibility middleware
+// If Vercel already consumed the stream and parsed req.body, mark _body=true so body-parser doesn't crash
+app.use((req, res, next) => {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch {
+        // ignore
+      }
+    }
+    (req as any)._body = true;
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -86,5 +102,18 @@ const healthHandler = (req: express.Request, res: express.Response) => {
 };
 app.get('/api/health', healthHandler);
 app.get('/health', healthHandler);
+
+// Catch-all resilient JSON error handler (avoids generic 500 error pages)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[API Error]', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({
+    success: false,
+    error: err.message || 'Internal server error',
+    details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
+});
 
 export default app;

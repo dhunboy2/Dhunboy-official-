@@ -62,24 +62,41 @@ router.post('/test-connections', async (req, res) => {
 
 // POST /api/settings/keys
 router.post('/keys', (req, res) => {
-  const { geminiApiKey, youtubeApiKey, clientId, clientSecret } = req.body;
+  try {
+    const body = (typeof req.body === 'object' && req.body !== null) ? req.body : {};
+    const { geminiApiKey, youtubeApiKey, clientId, clientSecret, encryptionSecret } = body;
 
-  if (clientId && clientSecret) {
-    db.setGoogleCredentials(clientId, clientSecret);
-  }
-  if (geminiApiKey !== undefined) {
-    db.setGeminiApiKey(geminiApiKey);
-  }
-  if (youtubeApiKey !== undefined) {
-    db.setYouTubeApiKey(youtubeApiKey);
-  }
+    if (clientId || clientSecret) {
+      db.setGoogleCredentials(clientId, clientSecret);
+    }
+    if (geminiApiKey !== undefined && geminiApiKey !== null) {
+      db.setGeminiApiKey(String(geminiApiKey));
+    }
+    if (youtubeApiKey !== undefined && youtubeApiKey !== null) {
+      db.setYouTubeApiKey(String(youtubeApiKey));
+    }
+    if (encryptionSecret) {
+      db.setEncryptionSecret(String(encryptionSecret));
+    }
 
-  res.json({
-    success: true,
-    message: 'Configuration and API keys updated successfully.',
-    hasGeminiKey: db.hasGeminiKey(),
-    credentialsConfigured: db.getGoogleCredentials().isConfigured
-  });
+    const creds = db.getGoogleCredentials();
+    return res.json({
+      success: true,
+      message: 'Configuration and API keys updated successfully.',
+      hasGeminiKey: db.hasGeminiKey(),
+      credentialsConfigured: creds.isConfigured,
+      clientIdLoaded: !!creds.clientId,
+      clientSecretLoaded: !!creds.clientSecret
+    });
+  } catch (err: any) {
+    console.error('Error in settings/keys:', err);
+    return res.status(200).json({
+      success: false,
+      error: err.message || 'Failed saving keys',
+      hasGeminiKey: db.hasGeminiKey(),
+      credentialsConfigured: db.getGoogleCredentials().isConfigured
+    });
+  }
 });
 
 // PUT /api/settings

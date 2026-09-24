@@ -298,27 +298,53 @@ class DatabaseStore {
   }
 
   private loadDatabase(): DatabaseSchema {
+    let parsed: any = null;
     if (fs.existsSync(DB_FILE)) {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        return {
-          ...parsed,
-          settings: {
-            ...DEFAULT_SETTINGS,
-            ...(parsed.settings || {}),
-            permissions: {
-              ...DEFAULT_PERMISSIONS,
-              ...(parsed.settings?.permissions || {})
-            }
-          },
-          descriptionTemplates: parsed.descriptionTemplates?.length
-            ? parsed.descriptionTemplates
-            : DEFAULT_TEMPLATES
-        };
+        parsed = JSON.parse(raw);
       } catch (err) {
         console.error('Error reading database file, initializing defaults:', err);
       }
+    }
+
+    // Secondary vault file for credential persistence across cold-starts
+    const VAULT_FILE = path.join(DATA_DIR, 'credentials_vault.json');
+    let vaultCredentials: any = {};
+    if (fs.existsSync(VAULT_FILE)) {
+      try {
+        vaultCredentials = JSON.parse(fs.readFileSync(VAULT_FILE, 'utf-8'));
+      } catch {
+        // ignore
+      }
+    }
+
+    if (parsed) {
+      return {
+        ...parsed,
+        settings: {
+          ...DEFAULT_SETTINGS,
+          ...(parsed.settings || {}),
+          permissions: {
+            ...DEFAULT_PERMISSIONS,
+            ...(parsed.settings?.permissions || {})
+          }
+        },
+        googleClientConfig: {
+          clientId: process.env.GOOGLE_CLIENT_ID || vaultCredentials.clientId || '',
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET || vaultCredentials.clientSecret || '',
+          configuredManually: false,
+          ...(parsed.googleClientConfig || {})
+        },
+        apiKeys: {
+          geminiApiKey: vaultCredentials.geminiApiKey || '',
+          youtubeApiKey: vaultCredentials.youtubeApiKey || '',
+          ...(parsed.apiKeys || {})
+        },
+        descriptionTemplates: parsed.descriptionTemplates?.length
+          ? parsed.descriptionTemplates
+          : DEFAULT_TEMPLATES
+      };
     }
 
     const initial: DatabaseSchema = {
@@ -517,12 +543,25 @@ class DatabaseStore {
 
   private saveDatabase(data: DatabaseSchema) {
     try {
-      const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-      fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-      fs.renameSync(tempFile, DB_FILE);
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
       this.data = data;
+
+      // Also persist credentials into a dedicated vault backup
+      const VAULT_FILE = path.join(DATA_DIR, 'credentials_vault.json');
+      const vaultPayload = {
+        clientId: data.googleClientConfig?.clientId || '',
+        clientSecret: data.googleClientConfig?.clientSecret || '',
+        geminiApiKey: data.apiKeys?.geminiApiKey || '',
+        youtubeApiKey: data.apiKeys?.youtubeApiKey || '',
+        updatedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(VAULT_FILE, JSON.stringify(vaultPayload, null, 2), 'utf-8');
     } catch (err) {
       console.error('Failed to save database file:', err);
+      this.data = data;
     }
   }
 
@@ -555,16 +594,17 @@ class DatabaseStore {
   }
 
   public getGoogleCredentials() {
+    const cfg = this.data?.googleClientConfig || { clientId: '', clientSecret: '', configuredManually: false };
     let clientId = (
       resolveGoogleClientId() ||
-      this.data.googleClientConfig.clientId ||
+      cfg.clientId ||
       ''
     ).trim();
     clientId = clientId.replace(/^https?:\/\//i, '').replace(/["']/g, '').trim();
 
     const clientSecret = (
       resolveGoogleClientSecret() ||
-      this.data.googleClientConfig.clientSecret ||
+      cfg.clientSecret ||
       ''
     ).replace(/["']/g, '').trim();
 
@@ -575,27 +615,61 @@ class DatabaseStore {
     };
   }
 
-  public setGoogleCredentials(clientId: string, clientSecret: string) {
-    const cleanClientId = clientId.trim().replace(/^https?:\/\//i, '').replace(/["']/g, '').trim();
-    const cleanClientSecret = clientSecret.trim().replace(/["']/g, '').trim();
-    this.data.googleClientConfig = {
-      clientId: cleanClientId,
-      clientSecret: cleanClientSecret,
-      configuredManually: true
-    };
+  public setGoogleCredentials(clientId?: string, clientSecret?: string) {
+    if (!this.data.googleClientConfig) {
+      this.data.googleClientConfig = {
+        clientId: '',
+        clientSecret: '',
+        configuredManually: false
+      };
+    }
+
+    if (clientId !== undefined && clientId !== null) {
+      this.data.googleClientConfig.clientId = String(clientId)
+        .trim()
+        .replace(/^https?:\/\//i, '')
+        .replace(/["']/g, '')
+        .trim();
+    }
+
+    if (clientSecret !== undefined && clientSecret !== null) {
+      this.data.googleClientConfig.clientSecret = String(clientSecret)
+        .trim()
+        .replace(/["']/g, '')
+        .trim();
+    }
+
+    this.data.googleClientConfig.configuredManually = true;
     this.refreshSettingsStatus();
     this.saveDatabase(this.data);
+  }
+
+  public setEncryptionSecret(secret: string) {
+    const cleanSecret = String(secret || '').trim();
+    if (cleanSecret.length >= 16) {
+      process.env.ENCRYPTION_SECRET = cleanSecret;
+      const SECRET_BACKUP_FILE = path.join(DATA_DIR, '.secret_vault');
+      try {
+        if (!fs.existsSync(DATA_DIR)) {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+        fs.writeFileSync(SECRET_BACKUP_FILE, cleanSecret, 'utf-8');
+      } catch {
+        // ignore
+      }
+      this.encryptionKey = crypto.createHash('sha256').update(cleanSecret).digest();
+    }
   }
 
   public getGeminiApiKey(): string {
     const envKey = resolveGeminiApiKey();
     if (envKey) return envKey;
-    return (this.data.apiKeys?.geminiApiKey || '').trim();
+    return (this.data?.apiKeys?.geminiApiKey || '').trim();
   }
 
   public setGeminiApiKey(key: string) {
     if (!this.data.apiKeys) this.data.apiKeys = {};
-    this.data.apiKeys.geminiApiKey = key.trim();
+    this.data.apiKeys.geminiApiKey = String(key || '').trim();
     this.refreshSettingsStatus();
     this.saveDatabase(this.data);
   }
@@ -607,12 +681,12 @@ class DatabaseStore {
   public getYouTubeApiKey(): string {
     const envKey = resolveYouTubeApiKey();
     if (envKey) return envKey;
-    return (this.data.apiKeys?.youtubeApiKey || '').trim();
+    return (this.data?.apiKeys?.youtubeApiKey || '').trim();
   }
 
   public setYouTubeApiKey(key: string) {
     if (!this.data.apiKeys) this.data.apiKeys = {};
-    this.data.apiKeys.youtubeApiKey = key.trim();
+    this.data.apiKeys.youtubeApiKey = String(key || '').trim();
     this.saveDatabase(this.data);
   }
 

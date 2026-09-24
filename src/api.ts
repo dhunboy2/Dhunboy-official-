@@ -63,7 +63,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ clientId, clientSecret })
     }),
-  saveAllKeys: (data: { clientId?: string; clientSecret?: string; geminiApiKey?: string; youtubeApiKey?: string }) =>
+  saveAllKeys: (data: { clientId?: string; clientSecret?: string; geminiApiKey?: string; youtubeApiKey?: string; encryptionSecret?: string }) =>
     req<{ success: boolean; message: string; hasGeminiKey: boolean; credentialsConfigured: boolean }>('/api/auth/keys', {
       method: 'POST',
       body: JSON.stringify(data)

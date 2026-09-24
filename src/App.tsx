@@ -80,7 +80,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchAppData();
+    // 1. Auto-hydrate any saved credentials from browser localStorage to server memory
+    const autoHydrateCredentials = async () => {
+      try {
+        const savedClientId = localStorage.getItem('dhunboy_google_client_id');
+        const savedClientSecret = localStorage.getItem('dhunboy_google_client_secret');
+        const savedGeminiKey = localStorage.getItem('dhunboy_gemini_api_key');
+        const savedYtKey = localStorage.getItem('dhunboy_youtube_api_key');
+        const savedEncKey = localStorage.getItem('dhunboy_encryption_secret');
+
+        if (savedClientId || savedClientSecret || savedGeminiKey || savedYtKey || savedEncKey) {
+          await api.saveAllKeys({
+            clientId: savedClientId || undefined,
+            clientSecret: savedClientSecret || undefined,
+            geminiApiKey: savedGeminiKey || undefined,
+            youtubeApiKey: savedYtKey || undefined,
+            encryptionSecret: savedEncKey || undefined
+          }).catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    autoHydrateCredentials().then(() => {
+      fetchAppData();
+    });
 
     // Check URL parameters for OAuth redirect notifications
     const params = new URLSearchParams(window.location.search);

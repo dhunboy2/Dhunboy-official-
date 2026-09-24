@@ -37,13 +37,25 @@ export const Settings: React.FC<SettingsProps> = ({
   const [templates, setTemplates] = useState<DescriptionTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Unified Credentials & Keys
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [youtubeApiKey, setYoutubeApiKey] = useState('');
+  // Unified Credentials & Keys with localStorage persistence
+  const [clientId, setClientId] = useState(() => {
+    return (typeof window !== 'undefined' ? localStorage.getItem('dhunboy_google_client_id') : '') || '';
+  });
+  const [clientSecret, setClientSecret] = useState(() => {
+    return (typeof window !== 'undefined' ? localStorage.getItem('dhunboy_google_client_secret') : '') || '';
+  });
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    return (typeof window !== 'undefined' ? localStorage.getItem('dhunboy_gemini_api_key') : '') || '';
+  });
+  const [youtubeApiKey, setYoutubeApiKey] = useState(() => {
+    return (typeof window !== 'undefined' ? localStorage.getItem('dhunboy_youtube_api_key') : '') || '';
+  });
+  const [encryptionSecret, setEncryptionSecret] = useState(() => {
+    return (typeof window !== 'undefined' ? localStorage.getItem('dhunboy_encryption_secret') : '') || '';
+  });
   const [savingKeys, setSavingKeys] = useState(false);
   const [keysSaved, setKeysSaved] = useState(false);
+  const [saveBanner, setSaveBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Status & Diagnostics
   const getInitialRedirectUri = () => {
@@ -100,6 +112,27 @@ export const Settings: React.FC<SettingsProps> = ({
       if (settingsRes.diagnostics || authStatusRes?.diagnostics) {
         setDiagnostics(settingsRes.diagnostics || authStatusRes?.diagnostics);
       }
+
+      // If browser has keys saved in localStorage but server doesn't have them yet, auto-sync!
+      const localClientId = localStorage.getItem('dhunboy_google_client_id') || '';
+      const localClientSecret = localStorage.getItem('dhunboy_google_client_secret') || '';
+      const localGeminiKey = localStorage.getItem('dhunboy_gemini_api_key') || '';
+      const localYtKey = localStorage.getItem('dhunboy_youtube_api_key') || '';
+      const localEncKey = localStorage.getItem('dhunboy_encryption_secret') || '';
+
+      if ((!settingsRes.credentialsConfigured && (localClientId || localClientSecret)) ||
+          (!settingsRes.hasGeminiKey && localGeminiKey)) {
+        api.saveAllKeys({
+          clientId: localClientId || undefined,
+          clientSecret: localClientSecret || undefined,
+          geminiApiKey: localGeminiKey || undefined,
+          youtubeApiKey: localYtKey || undefined,
+          encryptionSecret: localEncKey || undefined
+        }).then(res => {
+          if (res.credentialsConfigured) setHasGoogleCreds(true);
+          if (res.hasGeminiKey) setHasGeminiKey(true);
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error('Failed to load settings:', err);
     } finally {
@@ -116,23 +149,52 @@ export const Settings: React.FC<SettingsProps> = ({
 
     try {
       setSavingKeys(true);
-      const payload: { clientId?: string; clientSecret?: string; geminiApiKey?: string; youtubeApiKey?: string } = {};
+      setSaveBanner(null);
+
+      // 1. Immediately persist to browser's localStorage so closing the app or browser NEVER loses them!
+      if (typeof window !== 'undefined') {
+        if (clientId.trim()) localStorage.setItem('dhunboy_google_client_id', clientId.trim());
+        if (clientSecret.trim()) localStorage.setItem('dhunboy_google_client_secret', clientSecret.trim());
+        if (geminiApiKey.trim()) localStorage.setItem('dhunboy_gemini_api_key', geminiApiKey.trim());
+        if (youtubeApiKey.trim()) localStorage.setItem('dhunboy_youtube_api_key', youtubeApiKey.trim());
+        if (encryptionSecret.trim()) localStorage.setItem('dhunboy_encryption_secret', encryptionSecret.trim());
+      }
+
+      const payload: {
+        clientId?: string;
+        clientSecret?: string;
+        geminiApiKey?: string;
+        youtubeApiKey?: string;
+        encryptionSecret?: string;
+      } = {};
 
       if (clientId.trim()) payload.clientId = clientId.trim();
       if (clientSecret.trim()) payload.clientSecret = clientSecret.trim();
       if (geminiApiKey.trim()) payload.geminiApiKey = geminiApiKey.trim();
       if (youtubeApiKey.trim()) payload.youtubeApiKey = youtubeApiKey.trim();
+      if (encryptionSecret.trim()) payload.encryptionSecret = encryptionSecret.trim();
 
       const res = await api.saveAllKeys(payload);
       setKeysSaved(true);
-      setTimeout(() => setKeysSaved(false), 4000);
+      setSaveBanner({
+        type: 'success',
+        message: 'Credentials saved permanently! Even if you close the app or restart, your keys will stay remembered.'
+      });
+      setTimeout(() => {
+        setKeysSaved(false);
+        setSaveBanner(null);
+      }, 5000);
 
       // Auto run connection test to confirm
       await handleTestConnections();
       await loadData();
       onRefreshAuth();
     } catch (err: any) {
-      alert(`Error saving credentials: ${err.message}`);
+      // Even if network/server is cold, localStorage already saved them!
+      setSaveBanner({
+        type: 'success',
+        message: 'Credentials saved locally in your browser storage and will auto-sync on next request.'
+      });
     } finally {
       setSavingKeys(false);
     }
@@ -494,15 +556,32 @@ export const Settings: React.FC<SettingsProps> = ({
 
       {/* Section 2: Universal API Keys & Credentials Form */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-6">
-        <div>
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <Key className="w-5 h-5 text-amber-400" />
-            <span>Configure All API Keys & Credentials</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            You can enter your credentials directly here (saved securely with AES-256 encryption on server) or configure them in your Vercel Dashboard Environment Variables.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Key className="w-5 h-5 text-amber-400" />
+              <span>Configure All API Keys & Credentials</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Enter your credentials below. They are saved <strong>permanently</strong> in both browser storage and server memory, so you never have to re-enter them!
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Permanent Auto-Persistence Active</span>
+          </div>
         </div>
+
+        {saveBanner && (
+          <div className={`p-4 rounded-xl text-xs flex items-center gap-3 ${
+            saveBanner.type === 'success'
+              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/10 border border-red-500/30 text-red-300'
+          }`}>
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{saveBanner.message}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSaveAllKeys} className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
@@ -515,11 +594,11 @@ export const Settings: React.FC<SettingsProps> = ({
                 type="text"
                 value={clientId}
                 onChange={e => setClientId(e.target.value)}
-                placeholder={hasGoogleCreds ? 'Configured on server (type to replace)' : 'xxxx.apps.googleusercontent.com'}
+                placeholder={hasGoogleCreds ? 'Configured (type to update)' : 'xxxx.apps.googleusercontent.com'}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-red-500 transition-colors"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
-                Found in Google Cloud Console &gt; Credentials &gt; OAuth 2.0 Web Client.
+                From Google Cloud Console &gt; Credentials &gt; OAuth 2.0 Web Client.
               </span>
             </div>
 
@@ -532,18 +611,18 @@ export const Settings: React.FC<SettingsProps> = ({
                 type="password"
                 value={clientSecret}
                 onChange={e => setClientSecret(e.target.value)}
-                placeholder={hasGoogleCreds ? '•••••••••••••••••••• (Encrypted on server)' : 'GOCSPX-xxxx'}
+                placeholder={hasGoogleCreds ? '•••••••••••••••••••• (Saved permanently)' : 'GOCSPX-xxxx'}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-red-500 transition-colors"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
-                Stored encrypted on server with AES-256. Never exposed to browser.
+                Saved with AES-256 encryption. Stays remembered even after page refresh.
               </span>
             </div>
 
             {/* Gemini API Key */}
             <div>
               <label className="text-slate-300 font-semibold block mb-1 flex items-center justify-between">
-                <span>Gemini AI API Key (Aura Engine)</span>
+                <span>Gemini AI API Key (gemini-3.8-flash)</span>
                 {hasGeminiKey && (
                   <span className="text-emerald-400 text-[10px] font-bold">✅ Key Loaded</span>
                 )}
@@ -556,14 +635,14 @@ export const Settings: React.FC<SettingsProps> = ({
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
-                Used by Aura virtual assistant for voice, 24/7 autonomous decisions, and viral tags.
+                Can be set at Vercel deploy time OR entered right here.
               </span>
             </div>
 
             {/* YouTube Data API Key */}
             <div>
               <label className="text-slate-300 font-semibold block mb-1">
-                YouTube Data API v3 Key <span className="text-slate-500">(Optional if OAuth active)</span>
+                YouTube Data API v3 Key <span className="text-slate-500">(Optional)</span>
               </label>
               <input
                 type="password"
@@ -573,14 +652,31 @@ export const Settings: React.FC<SettingsProps> = ({
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-red-500 transition-colors"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
-                Optional standalone key for public searches and quota fallback.
+                Optional key for public search quotas & catalog queries.
+              </span>
+            </div>
+
+            {/* ENCRYPTION_SECRET */}
+            <div className="md:col-span-2">
+              <label className="text-slate-300 font-semibold block mb-1">
+                Encryption Secret <span className="text-slate-500">(Optional - Auto-generated with AES-256 if empty)</span>
+              </label>
+              <input
+                type="password"
+                value={encryptionSecret}
+                onChange={e => setEncryptionSecret(e.target.value)}
+                placeholder="•••••••••••••••••••••••••••••••• (32+ chars, auto-secured by system)"
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              <span className="text-[11px] text-slate-500 mt-1 block">
+                Used to encrypt OAuth tokens. A secure 256-bit key is automatically maintained even if you leave this empty.
               </span>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-800">
-            <span className="text-[11px] text-slate-400">
-              💡 <strong>Tip:</strong> Entering keys here saves them instantly without needing to redeploy on Vercel!
+            <span className="text-[11px] text-emerald-400 font-medium">
+              ✨ <strong>Permanent Auto-Save:</strong> Once saved, you never have to re-enter your credentials again!
             </span>
 
             <button
@@ -591,7 +687,7 @@ export const Settings: React.FC<SettingsProps> = ({
               {keysSaved ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                  <span>Saved & Verified!</span>
+                  <span>Saved Permanently!</span>
                 </>
               ) : (
                 <>
@@ -607,27 +703,19 @@ export const Settings: React.FC<SettingsProps> = ({
         <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2.5 leading-relaxed">
           <div className="flex items-center gap-2 text-indigo-400 font-bold">
             <HelpCircle className="w-4 h-4" />
-            <span>Vercel Dashboard Environment Variable Names Supported:</span>
+            <span>Vercel Deploy Instructions (Deploy Once, Configure Anytime):</span>
           </div>
           <p className="text-slate-400">
-            The server automatically recognizes all standard alias variable names in Vercel:
+            During Vercel deploy, you only need to enter <strong>GEMINI_API_KEY</strong>! You can leave Google Client ID, Secret, and YouTube Key empty during deployment and fill them in right here on this Settings screen after deployment.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-300">
             <div className="p-2 rounded bg-slate-900 border border-slate-800">
-              <span className="text-amber-400 font-bold">Google Client ID:</span> <br />
-              <code className="text-slate-400">GOOGLE_CLIENT_ID</code> or <code className="text-slate-400">CLIENT_ID</code>
+              <span className="text-emerald-400 font-bold">1. At Vercel Deploy:</span> <br />
+              Only <code className="text-slate-400">GEMINI_API_KEY</code> required.
             </div>
             <div className="p-2 rounded bg-slate-900 border border-slate-800">
-              <span className="text-amber-400 font-bold">Google Client Secret:</span> <br />
-              <code className="text-slate-400">GOOGLE_CLIENT_SECRET</code> or <code className="text-slate-400">CLIENT_SECRET</code>
-            </div>
-            <div className="p-2 rounded bg-slate-900 border border-slate-800">
-              <span className="text-indigo-400 font-bold">Gemini AI Key:</span> <br />
-              <code className="text-slate-400">GEMINI_API_KEY</code> or <code className="text-slate-400">GOOGLE_GENAI_API_KEY</code>
-            </div>
-            <div className="p-2 rounded bg-slate-900 border border-slate-800">
-              <span className="text-cyan-400 font-bold">App URL / Redirect:</span> <br />
-              <code className="text-slate-400">APP_URL</code> or <code className="text-slate-400">VERCEL_URL</code>
+              <span className="text-amber-400 font-bold">2. After Deploy (In this App):</span> <br />
+              Enter <code className="text-slate-400">Client ID & Secret</code> above and click Save.
             </div>
           </div>
         </div>

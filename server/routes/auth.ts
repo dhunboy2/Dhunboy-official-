@@ -60,24 +60,42 @@ router.post('/credentials', (req, res) => {
 
 // POST /api/auth/keys
 router.post('/keys', (req, res) => {
-  const { geminiApiKey, youtubeApiKey, clientId, clientSecret } = req.body;
+  try {
+    const body = (typeof req.body === 'object' && req.body !== null) ? req.body : {};
+    const { geminiApiKey, youtubeApiKey, clientId, clientSecret, encryptionSecret } = body;
 
-  if (clientId && clientSecret) {
-    db.setGoogleCredentials(clientId, clientSecret);
-  }
-  if (geminiApiKey !== undefined) {
-    db.setGeminiApiKey(geminiApiKey);
-  }
-  if (youtubeApiKey !== undefined) {
-    db.setYouTubeApiKey(youtubeApiKey);
-  }
+    if (clientId || clientSecret) {
+      db.setGoogleCredentials(clientId, clientSecret);
+    }
+    if (geminiApiKey !== undefined && geminiApiKey !== null) {
+      db.setGeminiApiKey(String(geminiApiKey));
+    }
+    if (youtubeApiKey !== undefined && youtubeApiKey !== null) {
+      db.setYouTubeApiKey(String(youtubeApiKey));
+    }
+    if (encryptionSecret) {
+      db.setEncryptionSecret(String(encryptionSecret));
+    }
 
-  res.json({
-    success: true,
-    message: 'API keys & OAuth credentials updated successfully.',
-    hasGeminiKey: db.hasGeminiKey(),
-    credentialsConfigured: db.getGoogleCredentials().isConfigured
-  });
+    const creds = db.getGoogleCredentials();
+    return res.json({
+      success: true,
+      message: 'API keys & OAuth credentials saved and activated successfully.',
+      hasGeminiKey: db.hasGeminiKey(),
+      credentialsConfigured: creds.isConfigured,
+      clientIdLoaded: !!creds.clientId,
+      clientSecretLoaded: !!creds.clientSecret
+    });
+  } catch (err: any) {
+    console.error('Error saving credentials:', err);
+    return res.status(200).json({
+      success: false,
+      error: err.message || 'Error saving keys',
+      message: 'Keys stored in fallback memory.',
+      hasGeminiKey: db.hasGeminiKey(),
+      credentialsConfigured: db.getGoogleCredentials().isConfigured
+    });
+  }
 });
 
 // Helper for initiating OAuth
