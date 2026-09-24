@@ -1,0 +1,6 @@
+{
+  "name": "Dhunboy AI YouTube Manager",
+  "description": "Autonomous AI-powered YouTube channel management system for Dhunboy Official (Lobish Sarma) with real YouTube API integrations, SEO, Shorts, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
