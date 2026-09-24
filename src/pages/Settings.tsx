@@ -246,7 +246,7 @@ export const Settings: React.FC<SettingsProps> = ({
             )}
           </div>
           <p className="text-sm font-bold text-white">
-            {hasGeminiKey ? 'Gemini 2.5 Flash Ready' : 'AI Assistant Offline'}
+            {hasGeminiKey ? 'Gemini 3.8 Flash Ready' : 'AI Assistant Offline'}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             {hasGeminiKey

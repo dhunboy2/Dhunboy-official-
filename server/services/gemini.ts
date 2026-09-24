@@ -24,14 +24,14 @@ export function getGeminiClient(): GoogleGenAI | null {
   return aiInstance;
 }
 
-// Stable models waterfall in order of current availability
+// Modern Gemini 3.x models waterfall in order of preference
 export const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash'
+  'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest'
 ];
 
-export const GEMINI_MODEL = 'gemini-2.5-flash';
+export const GEMINI_MODEL = 'gemini-3.8-flash';
 
 /**
  * Resilient generation function with model waterfall and graceful error handling.
