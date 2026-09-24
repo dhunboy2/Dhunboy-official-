@@ -9,8 +9,125 @@ export interface EnvValidationResult {
   googleClientIdConfigured: boolean;
   googleClientSecretConfigured: boolean;
   googleRedirectUriConfigured: boolean;
+  geminiApiKeyConfigured: boolean;
+  youtubeApiKeyConfigured: boolean;
   redirectUri: string;
   appUrl: string;
+}
+
+/**
+ * Universal resolver for Google OAuth Client ID across common alias names
+ */
+export function resolveGoogleClientId(): string {
+  const val = (
+    process.env.GOOGLE_CLIENT_ID ||
+    process.env.CLIENT_ID ||
+    process.env.VITE_GOOGLE_CLIENT_ID ||
+    process.env.YOUTUBE_CLIENT_ID ||
+    process.env.GOOGLE_ID ||
+    process.env.GOOGLE_CLIENTID ||
+    ''
+  ).trim();
+  // Strip accidental quotes or http prefixes if pasted by mistake
+  return val.replace(/^https?:\/\//i, '').replace(/["']/g, '').trim();
+}
+
+/**
+ * Universal resolver for Google OAuth Client Secret across common alias names
+ */
+export function resolveGoogleClientSecret(): string {
+  const val = (
+    process.env.GOOGLE_CLIENT_SECRET ||
+    process.env.CLIENT_SECRET ||
+    process.env.VITE_GOOGLE_CLIENT_SECRET ||
+    process.env.YOUTUBE_CLIENT_SECRET ||
+    process.env.GOOGLE_SECRET ||
+    process.env.GOOGLE_CLIENTSECRET ||
+    ''
+  ).trim();
+  return val.replace(/["']/g, '').trim();
+}
+
+/**
+ * Universal resolver for Gemini AI API Key across common alias names
+ */
+export function resolveGeminiApiKey(): string {
+  const val = (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GENAI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GEMINI_KEY ||
+    process.env.GEMINI_API ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.GEMINI ||
+    ''
+  ).trim();
+  return val.replace(/["']/g, '').trim();
+}
+
+/**
+ * Universal resolver for YouTube Data API Key across common alias names
+ */
+export function resolveYouTubeApiKey(): string {
+  const val = (
+    process.env.YOUTUBE_API_KEY ||
+    process.env.YT_API_KEY ||
+    process.env.YOUTUBE_API ||
+    process.env.YT_API ||
+    process.env.GOOGLE_API_KEY ||
+    ''
+  ).trim();
+  return val.replace(/["']/g, '').trim();
+}
+
+/**
+ * Universal resolver for App URL across Vercel and custom domains
+ */
+export function resolveAppUrl(): string {
+  let url = (
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.PUBLIC_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    process.env.VITE_APP_URL ||
+    ''
+  ).trim().replace(/\/+$/, '');
+
+  if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+
+  return url;
+}
+
+/**
+ * Computes the exact redirect URI for YouTube OAuth callback
+ */
+export function resolveEffectiveRedirectUri(reqHost?: string, reqProto?: string): string {
+  const custom = (
+    process.env.GOOGLE_REDIRECT_URI ||
+    process.env.REDIRECT_URI ||
+    process.env.VITE_GOOGLE_REDIRECT_URI ||
+    ''
+  ).trim();
+
+  if (custom) {
+    return custom;
+  }
+
+  const appUrl = resolveAppUrl();
+  if (appUrl) {
+    return `${appUrl}/api/auth/youtube/callback`;
+  }
+
+  if (reqHost) {
+    const proto = reqProto || 'https';
+    return `${proto}://${reqHost}/api/auth/youtube/callback`;
+  }
+
+  return '/api/auth/youtube/callback';
 }
 
 /**
@@ -39,20 +156,22 @@ export function validateEnvironment(): EnvValidationResult {
     process.env.ENCRYPTION_SECRET = secret;
   }
 
-  const clientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
-  const customRedirectUri = (process.env.GOOGLE_REDIRECT_URI || '').trim();
-  const appUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
-
-  const effectiveRedirectUri = customRedirectUri || (appUrl ? `${appUrl}/api/auth/youtube/callback` : '/api/auth/youtube/callback');
+  const clientId = resolveGoogleClientId();
+  const clientSecret = resolveGoogleClientSecret();
+  const geminiApiKey = resolveGeminiApiKey();
+  const ytApiKey = resolveYouTubeApiKey();
+  const redirectUri = resolveEffectiveRedirectUri();
+  const appUrl = resolveAppUrl();
 
   return {
     hasEncryptionSecret: true,
     secretLength: secret.length,
     googleClientIdConfigured: !!clientId,
     googleClientSecretConfigured: !!clientSecret,
-    googleRedirectUriConfigured: !!customRedirectUri,
-    redirectUri: effectiveRedirectUri,
+    googleRedirectUriConfigured: !!(process.env.GOOGLE_REDIRECT_URI || process.env.REDIRECT_URI),
+    geminiApiKeyConfigured: !!geminiApiKey,
+    youtubeApiKeyConfigured: !!ytApiKey,
+    redirectUri,
     appUrl
   };
 }

@@ -161,9 +161,27 @@ export async function processAssistantCommand(
 
   const ai = getGeminiClient();
   if (!ai) {
+    const creds = db.getGoogleCredentials();
+    const hasCreds = creds.isConfigured;
+    const fallbackText = actionTaken
+      ? actionTaken.description
+      : `Namaste Lobish! Main **Aura** hoon, aapki 3D Virtual AI Assistant aur DhunBoy Official ki co-producer. 
+
+💡 **Status Update:**
+Main local auto-pilot par active hoon. Full Gemini conversational intelligence ke liye:
+- **Settings** page me jakar apna **Gemini API Key** paste karke **Save & Activate** karein.
+- Ya Vercel dashboard me \`GEMINI_API_KEY\` add karein.
+
+📊 **Channel & OAuth Status:**
+- YouTube Channel: **${channel?.title || 'DhunBoy Official'}**
+- YouTube OAuth: ${isConnected ? '✅ Connected & Verified' : '⚠️ Not Connected (Settings me "Connect YouTube Channel" par click karein)'}
+- Google OAuth Credentials: ${hasCreds ? '✅ Loaded on server' : '⚠️ Missing (Settings me Client ID & Secret dalein)'}`;
+
     return {
-      reply: actionTaken ? actionTaken.description : `Namaste Lobish! Main **Aura** hoon, aapki 3D Virtual AI Assistant aur DhunBoy Official ki co-producer. Sabhi permissions chalu hain.`,
-      speechText: actionTaken ? actionTaken.description : `Namaste Lobish! Main Aura hoon. Aapka channel ab full auto-pilot mode me hai.`,
+      reply: fallbackText,
+      speechText: actionTaken
+        ? actionTaken.description
+        : `Namaste Lobish! Main Aura hoon. Channel auto-pilot par hai. Full conversational AI ke liye Settings me Gemini API key lagayein.`,
       detectedLanguage: langHint === 'Hindi' ? 'hi-IN' : langHint === 'Bengali' ? 'bn-IN' : langHint === 'Nepali' ? 'ne-NP' : 'en-US',
       actionTaken,
       suggestedPrompts: [

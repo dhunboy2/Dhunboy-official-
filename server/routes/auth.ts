@@ -1,23 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/store.js';
 import { YouTubeService } from '../services/youtube.js';
+import { resolveEffectiveRedirectUri, resolveAppUrl } from '../config/env.js';
 
 const router = Router();
 
 export function getEffectiveRedirectUri(req?: Request): string {
-  if (process.env.GOOGLE_REDIRECT_URI && process.env.GOOGLE_REDIRECT_URI.trim()) {
-    return process.env.GOOGLE_REDIRECT_URI.trim();
-  }
-  const appUrl = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  if (appUrl) {
-    return `${appUrl}/api/auth/youtube/callback`;
-  }
-  if (req) {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    return `${protocol}://${host}/api/auth/youtube/callback`;
-  }
-  return '/api/auth/youtube/callback';
+  const host = req ? (req.headers['x-forwarded-host'] || req.get('host') || '') : '';
+  const proto = req ? (req.headers['x-forwarded-proto'] || req.protocol || 'https') : 'https';
+  return resolveEffectiveRedirectUri(String(host), String(proto));
 }
 
 function handleStatusRequest(req: Request, res: Response) {
@@ -37,9 +28,18 @@ function handleStatusRequest(req: Request, res: Response) {
     credentialsConfigured: creds.isConfigured,
     clientIdConfigured: !!creds.clientId,
     redirectUri,
-    hasGeminiKey: settings.hasGeminiKey,
+    hasGeminiKey: db.hasGeminiKey(),
+    hasYouTubeApiKey: db.hasYouTubeApiKey(),
     tokenExpiryDate: token?.expiryDate || null,
-    scopes: token?.scope || []
+    scopes: token?.scope || [],
+    diagnostics: {
+      googleClientId: creds.clientId ? `Configured (${creds.clientId.substring(0, 10)}...)` : 'Missing',
+      googleClientSecret: creds.clientSecret ? 'Configured & Ready' : 'Missing',
+      geminiApiKey: db.hasGeminiKey() ? 'Configured & Online' : 'Missing',
+      youtubeApiKey: db.hasYouTubeApiKey() ? 'Configured' : 'Optional (OAuth Active)',
+      effectiveRedirectUri: redirectUri,
+      appUrl: resolveAppUrl() || (req ? `${req.protocol}://${req.get('host')}` : 'Auto-detected')
+    }
   });
 }
 
@@ -56,6 +56,28 @@ router.post('/credentials', (req, res) => {
 
   db.setGoogleCredentials(clientId, clientSecret);
   res.json({ success: true, message: 'Google OAuth credentials saved securely on server.' });
+});
+
+// POST /api/auth/keys
+router.post('/keys', (req, res) => {
+  const { geminiApiKey, youtubeApiKey, clientId, clientSecret } = req.body;
+
+  if (clientId && clientSecret) {
+    db.setGoogleCredentials(clientId, clientSecret);
+  }
+  if (geminiApiKey !== undefined) {
+    db.setGeminiApiKey(geminiApiKey);
+  }
+  if (youtubeApiKey !== undefined) {
+    db.setYouTubeApiKey(youtubeApiKey);
+  }
+
+  res.json({
+    success: true,
+    message: 'API keys & OAuth credentials updated successfully.',
+    hasGeminiKey: db.hasGeminiKey(),
+    credentialsConfigured: db.getGoogleCredentials().isConfigured
+  });
 });
 
 // Helper for initiating OAuth

@@ -3,6 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import {
+  resolveGoogleClientId,
+  resolveGoogleClientSecret,
+  resolveGeminiApiKey,
+  resolveYouTubeApiKey
+} from '../config/env.js';
+import {
   YouTubeChannel,
   StoredOAuthToken,
   VideoRecord,
@@ -31,6 +37,10 @@ interface DatabaseSchema {
     clientId: string;
     clientSecret: string;
     configuredManually: boolean;
+  };
+  apiKeys?: {
+    geminiApiKey?: string;
+    youtubeApiKey?: string;
   };
   videos: VideoRecord[];
   shorts: ShortRecord[];
@@ -517,10 +527,9 @@ class DatabaseStore {
   }
 
   public refreshSettingsStatus() {
-    const hasClientId = !!(this.data.googleClientConfig.clientId || process.env.GOOGLE_CLIENT_ID);
-    const hasClientSecret = !!(this.data.googleClientConfig.clientSecret || process.env.GOOGLE_CLIENT_SECRET);
-    this.data.settings.googleCredentialsConfigured = hasClientId && hasClientSecret;
-    this.data.settings.hasGeminiKey = !!process.env.GEMINI_API_KEY;
+    const creds = this.getGoogleCredentials();
+    this.data.settings.googleCredentialsConfigured = creds.isConfigured;
+    this.data.settings.hasGeminiKey = this.hasGeminiKey();
   }
 
   public getSettings(): AppSettings {
@@ -546,10 +555,19 @@ class DatabaseStore {
   }
 
   public getGoogleCredentials() {
-    let clientId = (process.env.GOOGLE_CLIENT_ID || this.data.googleClientConfig.clientId || '').trim();
+    let clientId = (
+      resolveGoogleClientId() ||
+      this.data.googleClientConfig.clientId ||
+      ''
+    ).trim();
     clientId = clientId.replace(/^https?:\/\//i, '').replace(/["']/g, '').trim();
 
-    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || this.data.googleClientConfig.clientSecret || '').replace(/["']/g, '').trim();
+    const clientSecret = (
+      resolveGoogleClientSecret() ||
+      this.data.googleClientConfig.clientSecret ||
+      ''
+    ).replace(/["']/g, '').trim();
+
     return {
       clientId,
       clientSecret,
@@ -567,6 +585,39 @@ class DatabaseStore {
     };
     this.refreshSettingsStatus();
     this.saveDatabase(this.data);
+  }
+
+  public getGeminiApiKey(): string {
+    const envKey = resolveGeminiApiKey();
+    if (envKey) return envKey;
+    return (this.data.apiKeys?.geminiApiKey || '').trim();
+  }
+
+  public setGeminiApiKey(key: string) {
+    if (!this.data.apiKeys) this.data.apiKeys = {};
+    this.data.apiKeys.geminiApiKey = key.trim();
+    this.refreshSettingsStatus();
+    this.saveDatabase(this.data);
+  }
+
+  public hasGeminiKey(): boolean {
+    return !!this.getGeminiApiKey();
+  }
+
+  public getYouTubeApiKey(): string {
+    const envKey = resolveYouTubeApiKey();
+    if (envKey) return envKey;
+    return (this.data.apiKeys?.youtubeApiKey || '').trim();
+  }
+
+  public setYouTubeApiKey(key: string) {
+    if (!this.data.apiKeys) this.data.apiKeys = {};
+    this.data.apiKeys.youtubeApiKey = key.trim();
+    this.saveDatabase(this.data);
+  }
+
+  public hasYouTubeApiKey(): boolean {
+    return !!this.getYouTubeApiKey();
   }
 
   public encryptToken(token: string): string {

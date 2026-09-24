@@ -44,8 +44,17 @@ export const api = {
     clientIdConfigured: boolean;
     redirectUri: string;
     hasGeminiKey: boolean;
+    hasYouTubeApiKey?: boolean;
     tokenExpiryDate: number | null;
     scopes: string[];
+    diagnostics?: {
+      googleClientId: string;
+      googleClientSecret: string;
+      geminiApiKey: string;
+      youtubeApiKey: string;
+      effectiveRedirectUri: string;
+      appUrl: string;
+    };
   }>('/api/auth/youtube/status'),
 
   getOAuthUrl: () => req<{ url: string; redirectUri: string }>('/api/auth/youtube?format=json'),
@@ -54,6 +63,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ clientId, clientSecret })
     }),
+  saveAllKeys: (data: { clientId?: string; clientSecret?: string; geminiApiKey?: string; youtubeApiKey?: string }) =>
+    req<{ success: boolean; message: string; hasGeminiKey: boolean; credentialsConfigured: boolean }>('/api/auth/keys', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+  testConnections: () =>
+    req<{
+      success: boolean;
+      gemini: { status: 'online' | 'offline'; model: string | null; message: string };
+      oauth: { status: string; clientIdLoaded: boolean; clientSecretLoaded: boolean; channelConnected: boolean; tokenValid: boolean };
+    }>('/api/settings/test-connections', { method: 'POST' }),
   disconnect: () => req<{ success: boolean }>('/api/auth/youtube/disconnect', { method: 'POST' }),
 
   // Channel
@@ -241,7 +261,24 @@ export const api = {
     req<{ success: boolean; message: string; syncResult?: any }>('/api/assistant/trigger-cycle', { method: 'POST' }),
 
   // Settings
-  getSettings: () => req<{ settings: AppSettings; credentialsConfigured: boolean; clientId: string }>('/api/settings'),
+  getSettings: () =>
+    req<{
+      settings: AppSettings;
+      credentialsConfigured: boolean;
+      clientId: string;
+      hasGeminiKey: boolean;
+      hasYouTubeApiKey: boolean;
+      redirectUri: string;
+      appUrl: string;
+      diagnostics?: {
+        googleClientId: string;
+        googleClientSecret: string;
+        geminiApiKey: string;
+        youtubeApiKey: string;
+        redirectUri: string;
+        appUrl: string;
+      };
+    }>('/api/settings'),
   updateSettings: (data: Partial<AppSettings>) => req<{ success: boolean; settings: AppSettings }>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify(data)

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { db } from '../db/store.js';
 import { DescriptionTemplate } from '../types.js';
+import { testGeminiConnection } from '../services/gemini.js';
+import { resolveEffectiveRedirectUri, resolveAppUrl } from '../config/env.js';
 
 const router = Router();
 
@@ -8,10 +10,75 @@ const router = Router();
 router.get('/', (req, res) => {
   const settings = db.getSettings();
   const credentials = db.getGoogleCredentials();
+  const host = req.headers['x-forwarded-host'] || req.get('host') || '';
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const redirectUri = resolveEffectiveRedirectUri(String(host), String(proto));
+
   res.json({
     settings,
     credentialsConfigured: credentials.isConfigured,
-    clientId: credentials.clientId ? `${credentials.clientId.substring(0, 12)}...` : ''
+    clientId: credentials.clientId ? `${credentials.clientId.substring(0, 12)}...` : '',
+    hasGeminiKey: db.hasGeminiKey(),
+    hasYouTubeApiKey: db.hasYouTubeApiKey(),
+    redirectUri,
+    appUrl: resolveAppUrl() || `${proto}://${host}`,
+    diagnostics: {
+      googleClientId: credentials.clientId ? `Configured (${credentials.clientId.substring(0, 10)}...)` : 'Missing',
+      googleClientSecret: credentials.clientSecret ? 'Configured & Encrypted' : 'Missing',
+      geminiApiKey: db.hasGeminiKey() ? 'Configured & Active' : 'Missing',
+      youtubeApiKey: db.hasYouTubeApiKey() ? 'Configured' : 'Optional (Using OAuth)',
+      redirectUri,
+      appUrl: resolveAppUrl() || `${proto}://${host}`
+    }
+  });
+});
+
+// POST /api/settings/test-connections
+router.post('/test-connections', async (req, res) => {
+  try {
+    const creds = db.getGoogleCredentials();
+    const token = db.getStoredToken();
+    const geminiTest = await testGeminiConnection();
+
+    res.json({
+      success: true,
+      gemini: {
+        status: geminiTest.success ? 'online' : 'offline',
+        model: geminiTest.model || null,
+        message: geminiTest.message
+      },
+      oauth: {
+        status: creds.isConfigured ? 'configured' : 'missing',
+        clientIdLoaded: !!creds.clientId,
+        clientSecretLoaded: !!creds.clientSecret,
+        channelConnected: !!token,
+        tokenValid: token ? token.expiryDate > Date.now() : false
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/settings/keys
+router.post('/keys', (req, res) => {
+  const { geminiApiKey, youtubeApiKey, clientId, clientSecret } = req.body;
+
+  if (clientId && clientSecret) {
+    db.setGoogleCredentials(clientId, clientSecret);
+  }
+  if (geminiApiKey !== undefined) {
+    db.setGeminiApiKey(geminiApiKey);
+  }
+  if (youtubeApiKey !== undefined) {
+    db.setYouTubeApiKey(youtubeApiKey);
+  }
+
+  res.json({
+    success: true,
+    message: 'Configuration and API keys updated successfully.',
+    hasGeminiKey: db.hasGeminiKey(),
+    credentialsConfigured: db.getGoogleCredentials().isConfigured
   });
 });
 

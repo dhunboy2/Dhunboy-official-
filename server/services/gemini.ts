@@ -1,13 +1,17 @@
 import { GoogleGenAI } from '@google/genai';
+import { db } from '../db/store.js';
 
 let aiInstance: GoogleGenAI | null = null;
+let currentKeyUsed: string = '';
 
 export function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = db.getGeminiApiKey();
   if (!apiKey) {
     return null;
   }
-  if (!aiInstance) {
+
+  if (!aiInstance || currentKeyUsed !== apiKey) {
+    currentKeyUsed = apiKey;
     aiInstance = new GoogleGenAI({
       apiKey,
       httpOptions: {
@@ -40,7 +44,7 @@ export async function generateContentWithRetry(params: {
 }): Promise<{ text: string }> {
   const client = getGeminiClient();
   if (!client) {
-    throw new Error('Gemini API client not configured');
+    throw new Error('Gemini API client not configured. Please add GEMINI_API_KEY in Vercel environment or Settings.');
   }
 
   let lastError: any = null;
@@ -79,4 +83,40 @@ export async function generateContentWithRetry(params: {
   }
 
   throw lastError || new Error('All Gemini models currently unavailable');
+}
+
+/**
+ * Validates Gemini API connection with a lightweight prompt
+ */
+export async function testGeminiConnection(): Promise<{ success: boolean; model?: string; message: string }> {
+  const client = getGeminiClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'Gemini API key is not configured. Set GEMINI_API_KEY in environment or Settings.'
+    };
+  }
+
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const res = await client.models.generateContent({
+        model,
+        contents: 'Reply with the word "CONNECTED" only.'
+      });
+      if (res && res.text) {
+        return {
+          success: true,
+          model,
+          message: `Successfully connected to Gemini AI (${model})`
+        };
+      }
+    } catch (err: any) {
+      // try next
+    }
+  }
+
+  return {
+    success: false,
+    message: 'Could not connect to Gemini API. Please check your API key validity.'
+  };
 }
