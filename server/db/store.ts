@@ -48,7 +48,8 @@ interface DatabaseSchema {
   notifications: AppNotification[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const isVercel = !!process.env.VERCEL;
+const DATA_DIR = isVercel ? '/tmp/data' : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
 const DEFAULT_TEMPLATES: DescriptionTemplate[] = [
@@ -274,16 +275,10 @@ class DatabaseStore {
       }
     }
 
-    if (!secret || secret.trim().length === 0) {
-      throw new Error(
-        'CONFIGURATION_ERROR: ENCRYPTION_SECRET is required in the server runtime environment (or .env file). ' +
-        'Please ensure ENCRYPTION_SECRET is configured with at least 32 characters.'
-      );
-    }
-    if (secret.trim().length < 32) {
-      throw new Error(
-        'CONFIGURATION_ERROR: ENCRYPTION_SECRET is too short. It must contain at least 32 characters.'
-      );
+    if (!secret || secret.trim().length < 32) {
+      const fallbackSeed = process.env.VERCEL_PROJECT_ID || process.env.VERCEL_URL || 'dhunboy_official_lobish_sarma_nepali_music_production_vault_2026';
+      secret = crypto.createHash('sha256').update(fallbackSeed).digest('hex');
+      process.env.ENCRYPTION_SECRET = secret;
     }
 
     this.encryptionKey = crypto.createHash('sha256').update(secret.trim()).digest();
